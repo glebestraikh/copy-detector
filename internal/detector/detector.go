@@ -12,7 +12,6 @@ import (
 )
 
 const (
-	version         = "1.0.0"
 	bufferSize      = 1024
 	sendInterval    = 3 * time.Second
 	nodeTimeout     = 10 * time.Second
@@ -20,8 +19,7 @@ const (
 )
 
 type Message struct {
-	Version string    `json:"version"`
-	ID      uuid.UUID `json:"id"`
+	ID uuid.UUID `json:"id"`
 }
 
 type Detector struct {
@@ -78,11 +76,11 @@ func (detector *Detector) sender(waitGroup *sync.WaitGroup) {
 	}
 	defer conn.Close()
 
-	msg, _ := json.Marshal(Message{version, detector.id})
+	jsonMsg, _ := json.Marshal(Message{detector.id})
 	log.Printf("Sender started on %v", conn.LocalAddr())
 
 	for {
-		conn.Write(msg)
+		conn.Write(jsonMsg)
 		time.Sleep(sendInterval)
 	}
 }
@@ -101,9 +99,9 @@ func (detector *Detector) receiver(waitGroup *sync.WaitGroup) {
 	buffer := make([]byte, bufferSize)
 
 	for {
-		n, addr, err := listener.ReadFromUDP(buffer)
+		n, senderAddr, err := listener.ReadFromUDP(buffer)
 		if err != nil {
-			log.Printf("Error reading UDP message from %v: %v", addr, err)
+			log.Printf("Error reading UDP message from %v: %v", senderAddr, err)
 			continue
 		}
 
@@ -112,11 +110,11 @@ func (detector *Detector) receiver(waitGroup *sync.WaitGroup) {
 			continue
 		}
 
-		if msg.Version != version || msg.ID == detector.id {
+		if msg.ID == detector.id {
 			continue
 		}
 
-		detector.addOrUpdateNode(msg.ID, addr)
+		detector.addOrUpdateNode(msg.ID, senderAddr)
 	}
 }
 
