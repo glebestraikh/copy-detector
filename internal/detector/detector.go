@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	bufferSize      = 1024
-	sendInterval    = 3 * time.Second
-	nodeTimeout     = 10 * time.Second
+	bufferSize      = 128
+	sendInterval    = 2 * time.Second
+	nodeTimeout     = 8 * time.Second
 	cleanupInterval = 5 * time.Second
 )
 
@@ -56,7 +56,7 @@ func Start(addr string, port int) {
 	}
 
 	var waitGroup sync.WaitGroup
-	waitGroup.Add(3)
+	waitGroup.Add(1)
 
 	go detector.sender(&waitGroup)
 	go detector.receiver(&waitGroup)
