@@ -125,14 +125,24 @@ func (detector *Detector) cleaner(waitGroup *sync.WaitGroup) {
 		time.Sleep(cleanupInterval)
 
 		detector.mu.Lock()
+		removedNodes := make([]*net.UDPAddr, 0)
+
 		for id, lastTime := range detector.lastSeen {
 			if time.Since(lastTime) > nodeTimeout {
 				addr := detector.nodes[id]
 				delete(detector.nodes, id)
 				delete(detector.lastSeen, id)
-				log.Printf("Copy %v removed", addr)
+				removedNodes = append(removedNodes, addr)
 			}
 		}
+
+		if len(removedNodes) > 0 {
+			for _, addr := range removedNodes {
+				log.Printf("Copy %v removed", addr)
+			}
+			detector.logLiveNodesUnlocked()
+		}
+
 		detector.mu.Unlock()
 	}
 }
@@ -145,9 +155,21 @@ func (detector *Detector) addOrUpdateNode(id uuid.UUID, addr *net.UDPAddr) {
 	detector.nodes[id] = addr
 	detector.lastSeen[id] = time.Now()
 
-	if exists {
-		log.Printf("Copy %v updated", addr)
-	} else {
+	if !exists {
 		log.Printf("Copy %v added", addr)
+		detector.logLiveNodesUnlocked()
 	}
+}
+
+func (detector *Detector) logLiveNodesUnlocked() {
+	if len(detector.nodes) == 0 {
+		log.Printf("Live copies: none")
+		return
+	}
+
+	ips := make([]string, 0, len(detector.nodes))
+	for _, addr := range detector.nodes {
+		ips = append(ips, addr.IP.String())
+	}
+	log.Printf("Live copies (%d): %v", len(ips), ips)
 }
