@@ -99,7 +99,7 @@ func Start(addr string, port int) {
 	detector.initTable()
 
 	var waitGroup sync.WaitGroup
-	waitGroup.Add(4)
+	waitGroup.Add(1)
 
 	go detector.sender(&waitGroup)
 	go detector.receiver(&waitGroup)
