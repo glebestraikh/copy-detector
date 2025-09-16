@@ -17,7 +17,3 @@ WORKDIR /app
 COPY --from=builder /app/copy-detector .
 
 ENTRYPOINT ["./copy-detector"]
-
-# перересоваывается терминал
-# выбор интеерфейса
-#в таблице не только ip но и порт
