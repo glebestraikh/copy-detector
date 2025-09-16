@@ -46,7 +46,22 @@ type Detector struct {
 	tableUpdateChan chan bool                  // Для обновления таблицы
 }
 
+func initLogging() {
+	// Открываем файл для логов
+	file, err := os.OpenFile("detector.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatalf("Failed to open log file: %v", err)
+	}
+
+	// Перенаправляем стандартный log в файл
+	log.SetOutput(file)
+
+	// Дополнительно можно настроить флаги: время, дата, микросекунды
+	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
+}
+
 func Start(addr string, port int) {
+	initLogging()
 	id, _ := uuid.NewUUID()
 
 	// net.JoinHostPort соединяет IP и порт в правильную строку адреса, учитывая особенности IPv4 и IPv6
@@ -195,9 +210,11 @@ func (detector *Detector) getMulticastInterface() (*net.Interface, error) {
 		for _, addr := range addrs {
 			if ipnet, ok := addr.(*net.IPNet); ok {
 				if detector.network == "udp6" && ipnet.IP.To4() == nil && !ipnet.IP.IsLoopback() {
+					log.Printf("Selected interface: %s (%s)", ifi.Name, ipnet.IP.String())
 					return &ifi, nil
 				}
 				if detector.network == "udp4" && ipnet.IP.To4() != nil {
+					log.Printf("Selected interface: %s (%s)", ifi.Name, ipnet.IP.String())
 					return &ifi, nil
 				}
 			}
