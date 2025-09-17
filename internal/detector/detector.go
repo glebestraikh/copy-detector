@@ -141,12 +141,20 @@ func (detector *Detector) sender(waitGroup *sync.WaitGroup) {
 		log.Printf("Failed to start UDP sender to %v: %v", detector.addr, err)
 		return
 	}
-	defer conn.Close()
+	defer func(conn *net.UDPConn) {
+		err := conn.Close()
+		if err != nil {
+			log.Printf("Failed to close UDP sender: %v", err)
+		}
+	}(conn)
 
 	jsonMsg, _ := json.Marshal(Message{detector.id})
 
 	for {
-		conn.Write(jsonMsg)
+		_, err := conn.Write(jsonMsg)
+		if err != nil {
+			log.Printf("Failed to send UDP message: %v", err)
+		}
 		time.Sleep(sendInterval)
 	}
 }
@@ -159,7 +167,12 @@ func (detector *Detector) receiver(waitGroup *sync.WaitGroup) {
 		log.Printf("Failed to start UDP multicast receiver on %v: %v", detector.addr, err)
 		return
 	}
-	defer listener.Close()
+	defer func(listener *net.UDPConn) {
+		err := listener.Close()
+		if err != nil {
+			log.Printf("Failed to close UDP multicast receiver: %v", err)
+		}
+	}(listener)
 
 	buffer := make([]byte, bufferSize)
 
@@ -372,7 +385,9 @@ func (detector *Detector) clearScreen() {
 		cmd = exec.Command("clear")
 	}
 	cmd.Stdout = os.Stdout
-	cmd.Run()
+	if err := cmd.Run(); err != nil {
+		log.Printf("Failed to clear screen: %v", err)
+	}
 }
 
 func (detector *Detector) clearRemainingLines() {
