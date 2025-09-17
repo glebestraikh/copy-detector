@@ -291,6 +291,7 @@ func (detector *Detector) tableUpdater(waitGroup *sync.WaitGroup) {
 }
 
 func (detector *Detector) displayTable() {
+	detector.clearScreen()
 	detector.mu.RLock()
 	nodes := make([]NodeInfo, 0, len(detector.nodes))
 
@@ -321,7 +322,8 @@ func (detector *Detector) displayTable() {
 	})
 
 	// Перемещаем курсор в начало области таблицы
-	detector.moveCursorToTableStart()
+	detector.clearScreen()
+	detector.initTable()
 
 	// Заголовок таблицы
 	fmt.Printf("%-10s %-20s %-25s %-10s %-15s\n",
@@ -375,12 +377,6 @@ func (detector *Detector) clearScreen() {
 	}
 	cmd.Stdout = os.Stdout
 	cmd.Run()
-}
-
-func (detector *Detector) moveCursorToTableStart() {
-	// ANSI коды для перемещения курсора в начало области таблицы
-	// Перемещаемся к строке 6 (где начинается таблица)
-	fmt.Print("\033[6;1H")
 }
 
 func (detector *Detector) clearRemainingLines() {
