@@ -301,9 +301,7 @@ func (detector *Detector) displayTable() {
 
 		// Определяем статус на основе времени последнего сообщения
 		timeSince := time.Since(lastSeen)
-		if timeSince > 6*time.Second {
-			status = "Warning"
-		} else if timeSince > nodeTimeout {
+		if timeSince > nodeTimeout {
 			status = "Offline"
 		}
 
@@ -346,8 +344,6 @@ func (detector *Detector) displayTable() {
 		switch node.Status {
 		case "Online":
 			statusSymbol = "🟢"
-		case "Warning":
-			statusSymbol = "🟡"
 		case "Offline":
 			statusSymbol = "🔴"
 		}
