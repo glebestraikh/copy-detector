@@ -1,6 +1,7 @@
 package detector
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -33,6 +34,12 @@ type NodeInfo struct {
 	Address  *net.UDPAddr
 	LastSeen time.Time
 	Status   string
+}
+
+type InterfaceInfo struct {
+	Interface *net.Interface
+	Addresses []string
+	Type      string // "ipv4", "ipv6", "both"
 }
 
 type Detector struct {
@@ -93,10 +100,10 @@ func Start(addr string, port int) {
 		tableUpdateChan: make(chan bool, 100),
 	}
 
-	// Определяем подходящий интерфейс для multicast
-	ifi, err := detector.getMulticastInterface()
+	// Выбираем интерфейс интерактивно
+	ifi, err := detector.selectMulticastInterface()
 	if err != nil {
-		log.Printf("Failed to find multicast interface: %v", err)
+		log.Printf("Failed to select multicast interface: %v", err)
 		return
 	}
 
@@ -108,6 +115,7 @@ func Start(addr string, port int) {
 	}
 
 	log.Printf("Starting detector with %s protocol for address %s", network, multicastAddr)
+	log.Printf("Using interface: %s", ifi.Name)
 	log.Printf("Local Node ID: %s", id.String())
 
 	// Инициализируем таблицу
@@ -130,6 +138,233 @@ func determineNetwork(ip net.IP) string {
 		return "udp4"
 	}
 	return "udp6"
+}
+
+// selectMulticastInterface позволяет пользователю выбрать сетевой интерфейс
+func (detector *Detector) selectMulticastInterface() (*net.Interface, error) {
+	interfaces, err := detector.getAvailableInterfaces()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get available interfaces: %v", err)
+	}
+
+	if len(interfaces) == 0 {
+		return nil, fmt.Errorf("no suitable multicast interfaces found for %s", detector.network)
+	}
+
+	// Если только один подходящий интерфейс, используем его автоматически
+	if len(interfaces) == 1 {
+		selected := interfaces[0].Interface
+		fmt.Printf("Automatically selected interface: %s\n", selected.Name)
+		fmt.Printf("Press Enter to continue...")
+		fmt.Scanln()
+		detector.clearScreen()
+		return selected, nil
+	}
+
+	// Показываем список доступных интерфейсов
+	detector.clearScreen()
+	fmt.Println("=== Network Interface Selection ===")
+	fmt.Printf("Protocol: %s | Multicast Address: %s\n", detector.network, detector.addr.String())
+	fmt.Println(strings.Repeat("=", 50))
+	fmt.Println()
+
+	fmt.Printf("%-5s %-20s %-15s %-30s %s\n", "№", "Interface", "Type", "IP Addresses", "Description")
+	fmt.Println(strings.Repeat("-", 80))
+
+	for i, ifaceInfo := range interfaces {
+		addresses := strings.Join(ifaceInfo.Addresses, ", ")
+		if len(addresses) > 30 {
+			addresses = addresses[:27] + "..."
+		}
+
+		description := getInterfaceDescription(ifaceInfo.Interface)
+
+		fmt.Printf("%-5d %-20s %-15s %-30s %s\n",
+			i+1,
+			ifaceInfo.Interface.Name,
+			ifaceInfo.Type,
+			addresses,
+			description)
+	}
+
+	fmt.Println(strings.Repeat("-", 80))
+	fmt.Print("\nSelect interface (1-", len(interfaces), ") or 0 for auto-select: ")
+
+	reader := bufio.NewReader(os.Stdin)
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return nil, fmt.Errorf("failed to read user input: %v", err)
+	}
+
+	choice, err := strconv.Atoi(strings.TrimSpace(input))
+	if err != nil {
+		return nil, fmt.Errorf("invalid input: %v", err)
+	}
+
+	var selectedInterface *net.Interface
+
+	if choice == 0 {
+		// Автоматический выбор - берем первый подходящий
+		selectedInterface = interfaces[0].Interface
+		fmt.Printf("Auto-selected interface: %s\n", selectedInterface.Name)
+	} else if choice >= 1 && choice <= len(interfaces) {
+		selectedInterface = interfaces[choice-1].Interface
+		fmt.Printf("Selected interface: %s\n", selectedInterface.Name)
+	} else {
+		return nil, fmt.Errorf("invalid choice: %d", choice)
+	}
+
+	fmt.Printf("Press Enter to continue...")
+	fmt.Scanln()
+	detector.clearScreen()
+
+	return selectedInterface, nil
+}
+
+// getAvailableInterfaces возвращает список подходящих интерфейсов
+func (detector *Detector) getAvailableInterfaces() ([]InterfaceInfo, error) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+
+	var suitable []InterfaceInfo
+
+	for _, ifi := range interfaces {
+		if ifi.Flags&net.FlagUp == 0 {
+			continue // интерфейс не активен
+		}
+		if ifi.Flags&net.FlagMulticast == 0 {
+			continue // не поддерживает multicast
+		}
+		if ifi.Flags&net.FlagLoopback != 0 {
+			continue // пропускаем loopback
+		}
+
+		// Получаем адреса интерфейса
+		addrs, err := ifi.Addrs()
+		if err != nil {
+			continue
+		}
+
+		var addresses []string
+		var hasIPv4, hasIPv6 bool
+
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok {
+				if ipnet.IP.IsLoopback() {
+					continue
+				}
+
+				if ipnet.IP.To4() != nil {
+					hasIPv4 = true
+					addresses = append(addresses, ipnet.IP.String())
+				} else {
+					hasIPv6 = true
+					addresses = append(addresses, ipnet.IP.String())
+				}
+			}
+		}
+
+		// Проверяем совместимость с требуемым протоколом
+		var isCompatible bool
+		var ifaceType string
+
+		if detector.network == "udp4" && hasIPv4 {
+			isCompatible = true
+			ifaceType = "IPv4"
+		} else if detector.network == "udp6" && hasIPv6 {
+			isCompatible = true
+			ifaceType = "IPv6"
+		}
+
+		if hasIPv4 && hasIPv6 {
+			ifaceType = "IPv4/IPv6"
+		}
+
+		if isCompatible && len(addresses) > 0 {
+			suitable = append(suitable, InterfaceInfo{
+				Interface: &ifi,
+				Addresses: addresses,
+				Type:      ifaceType,
+			})
+		}
+	}
+
+	// Сортируем интерфейсы по имени для стабильного порядка
+	sort.Slice(suitable, func(i, j int) bool {
+		return suitable[i].Interface.Name < suitable[j].Interface.Name
+	})
+
+	return suitable, nil
+}
+
+// getInterfaceDescription возвращает описание интерфейса
+func getInterfaceDescription(iface *net.Interface) string {
+	name := strings.ToLower(iface.Name)
+
+	switch {
+	case strings.Contains(name, "eth"):
+		return "Ethernet"
+	case strings.Contains(name, "wlan") || strings.Contains(name, "wifi") || strings.Contains(name, "wi-fi"):
+		return "Wireless"
+	case strings.Contains(name, "docker"):
+		return "Docker"
+	case strings.Contains(name, "veth"):
+		return "Virtual Ethernet"
+	case strings.Contains(name, "br"):
+		return "Bridge"
+	case strings.Contains(name, "tun") || strings.Contains(name, "tap"):
+		return "VPN/Tunnel"
+	case strings.Contains(name, "vmnet") || strings.Contains(name, "vbox"):
+		return "Virtual Machine"
+	case strings.Contains(name, "lo"):
+		return "Loopback"
+	default:
+		return "Network Interface"
+	}
+}
+
+// getMulticastInterface - оставляем для обратной совместимости, но теперь не используется
+func (detector *Detector) getMulticastInterface() (*net.Interface, error) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+
+	// Ищем первый активный интерфейс, который поддерживает multicast
+	for _, ifi := range interfaces {
+		if ifi.Flags&net.FlagUp == 0 {
+			continue // интерфейс не активен
+		}
+		if ifi.Flags&net.FlagMulticast == 0 {
+			continue // не поддерживает multicast
+		}
+		if ifi.Flags&net.FlagLoopback != 0 {
+			continue // пропускаем loopback
+		}
+
+		// Проверяем, есть ли у интерфейса подходящий адрес
+		addrs, err := ifi.Addrs()
+		if err != nil {
+			continue
+		}
+
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok {
+				if detector.network == "udp6" && ipnet.IP.To4() == nil && !ipnet.IP.IsLoopback() {
+					log.Printf("Selected interface: %s (%s)", ifi.Name, ipnet.IP.String())
+					return &ifi, nil
+				}
+				if detector.network == "udp4" && ipnet.IP.To4() != nil {
+					log.Printf("Selected interface: %s (%s)", ifi.Name, ipnet.IP.String())
+					return &ifi, nil
+				}
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("no suitable multicast interface found for %s", detector.network)
 }
 
 func (detector *Detector) sender(waitGroup *sync.WaitGroup) {
@@ -195,48 +430,6 @@ func (detector *Detector) receiver(waitGroup *sync.WaitGroup) {
 	}
 }
 
-// getMulticastInterface пытается найти подходящий сетевой интерфейс для multicast
-func (detector *Detector) getMulticastInterface() (*net.Interface, error) {
-	interfaces, err := net.Interfaces()
-	if err != nil {
-		return nil, err
-	}
-
-	// Ищем первый активный интерфейс, который поддерживает multicast
-	for _, ifi := range interfaces {
-		if ifi.Flags&net.FlagUp == 0 {
-			continue // интерфейс не активен
-		}
-		if ifi.Flags&net.FlagMulticast == 0 {
-			continue // не поддерживает multicast
-		}
-		if ifi.Flags&net.FlagLoopback != 0 {
-			continue // пропускаем loopback
-		}
-
-		// Проверяем, есть ли у интерфейса подходящий адрес
-		addrs, err := ifi.Addrs()
-		if err != nil {
-			continue
-		}
-
-		for _, addr := range addrs {
-			if ipnet, ok := addr.(*net.IPNet); ok {
-				if detector.network == "udp6" && ipnet.IP.To4() == nil && !ipnet.IP.IsLoopback() {
-					log.Printf("Selected interface: %s (%s)", ifi.Name, ipnet.IP.String())
-					return &ifi, nil
-				}
-				if detector.network == "udp4" && ipnet.IP.To4() != nil {
-					log.Printf("Selected interface: %s (%s)", ifi.Name, ipnet.IP.String())
-					return &ifi, nil
-				}
-			}
-		}
-	}
-
-	return nil, fmt.Errorf("no suitable multicast interface found for %s", detector.network)
-}
-
 func (detector *Detector) cleaner(waitGroup *sync.WaitGroup) {
 	defer waitGroup.Done()
 
@@ -287,8 +480,9 @@ func (detector *Detector) initTable() {
 	detector.clearScreen()
 	fmt.Println("=== Network Node Detector ===")
 	fmt.Printf("Local ID: %s\n", detector.id.String()[:8]+"...")
-	fmt.Printf("Network: %s | Address: %s\n", detector.network, detector.addr.String())
-	fmt.Println("=" + strings.Repeat("=", 70))
+	fmt.Printf("Network: %s | Address: %s | Interface: %s\n",
+		detector.network, detector.addr.String(), detector.iface.Name)
+	fmt.Println("=" + strings.Repeat("=", 80))
 	fmt.Println()
 }
 
@@ -353,7 +547,7 @@ func (detector *Detector) displayTable() {
 		nodeID := node.ID.String()[:8] + "..."
 		lastSeenStr := node.LastSeen.Format("15:04:05")
 
-		statusSymbol := "●"
+		statusSymbol := "..."
 		switch node.Status {
 		case "Online":
 			statusSymbol = "🟢"
