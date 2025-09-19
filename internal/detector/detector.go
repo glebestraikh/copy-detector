@@ -168,26 +168,20 @@ func (detector *Detector) selectMulticastInterface() (*net.Interface, error) {
 	fmt.Println(strings.Repeat("=", 50))
 	fmt.Println()
 
-	fmt.Printf("%-5s %-20s %-15s %-30s %s\n", "№", "Interface", "Type", "IP Addresses", "Description")
-	fmt.Println(strings.Repeat("-", 80))
+	fmt.Printf("%-5s %-20s %-15s %-30s\n", "№", "Interface", "Type", "IP Addresses")
+	fmt.Println(strings.Repeat("-", 100))
 
 	for i, ifaceInfo := range interfaces {
 		addresses := strings.Join(ifaceInfo.Addresses, ", ")
-		if len(addresses) > 30 {
-			addresses = addresses[:27] + "..."
-		}
 
-		description := getInterfaceDescription(ifaceInfo.Interface)
-
-		fmt.Printf("%-5d %-20s %-15s %-30s %s\n",
+		fmt.Printf("%-5d %-20s %-15s %-30s\n",
 			i+1,
 			ifaceInfo.Interface.Name,
 			ifaceInfo.Type,
-			addresses,
-			description)
+			addresses)
 	}
 
-	fmt.Println(strings.Repeat("-", 80))
+	fmt.Println(strings.Repeat("-", 100))
 	fmt.Print("\nSelect interface (1-", len(interfaces), ") or 0 for auto-select: ")
 
 	reader := bufio.NewReader(os.Stdin)
@@ -297,74 +291,6 @@ func (detector *Detector) getAvailableInterfaces() ([]InterfaceInfo, error) {
 	})
 
 	return suitable, nil
-}
-
-// getInterfaceDescription возвращает описание интерфейса
-func getInterfaceDescription(iface *net.Interface) string {
-	name := strings.ToLower(iface.Name)
-
-	switch {
-	case strings.Contains(name, "eth"):
-		return "Ethernet"
-	case strings.Contains(name, "wlan") || strings.Contains(name, "wifi") || strings.Contains(name, "wi-fi"):
-		return "Wireless"
-	case strings.Contains(name, "docker"):
-		return "Docker"
-	case strings.Contains(name, "veth"):
-		return "Virtual Ethernet"
-	case strings.Contains(name, "br"):
-		return "Bridge"
-	case strings.Contains(name, "tun") || strings.Contains(name, "tap"):
-		return "VPN/Tunnel"
-	case strings.Contains(name, "vmnet") || strings.Contains(name, "vbox"):
-		return "Virtual Machine"
-	case strings.Contains(name, "lo"):
-		return "Loopback"
-	default:
-		return "Network Interface"
-	}
-}
-
-// getMulticastInterface - оставляем для обратной совместимости, но теперь не используется
-func (detector *Detector) getMulticastInterface() (*net.Interface, error) {
-	interfaces, err := net.Interfaces()
-	if err != nil {
-		return nil, err
-	}
-
-	// Ищем первый активный интерфейс, который поддерживает multicast
-	for _, ifi := range interfaces {
-		if ifi.Flags&net.FlagUp == 0 {
-			continue // интерфейс не активен
-		}
-		if ifi.Flags&net.FlagMulticast == 0 {
-			continue // не поддерживает multicast
-		}
-		if ifi.Flags&net.FlagLoopback != 0 {
-			continue // пропускаем loopback
-		}
-
-		// Проверяем, есть ли у интерфейса подходящий адрес
-		addrs, err := ifi.Addrs()
-		if err != nil {
-			continue
-		}
-
-		for _, addr := range addrs {
-			if ipnet, ok := addr.(*net.IPNet); ok {
-				if detector.network == "udp6" && ipnet.IP.To4() == nil && !ipnet.IP.IsLoopback() {
-					log.Printf("Selected interface: %s (%s)", ifi.Name, ipnet.IP.String())
-					return &ifi, nil
-				}
-				if detector.network == "udp4" && ipnet.IP.To4() != nil {
-					log.Printf("Selected interface: %s (%s)", ifi.Name, ipnet.IP.String())
-					return &ifi, nil
-				}
-			}
-		}
-	}
-
-	return nil, fmt.Errorf("no suitable multicast interface found for %s", detector.network)
 }
 
 func (detector *Detector) sender(waitGroup *sync.WaitGroup) {
@@ -479,7 +405,7 @@ func (detector *Detector) triggerTableUpdate() {
 func (detector *Detector) initTable() {
 	detector.clearScreen()
 	fmt.Println("=== Network Node Detector ===")
-	fmt.Printf("Local ID: %s\n", detector.id.String()[:8]+"...")
+	fmt.Printf("Local ID: %s\n", detector.id.String())
 	fmt.Printf("Network: %s | Address: %s | Interface: %s\n",
 		detector.network, detector.addr.String(), detector.iface.Name)
 	fmt.Println("=" + strings.Repeat("=", 80))
@@ -551,8 +477,6 @@ func (detector *Detector) displayTable() {
 		switch node.Status {
 		case "Online":
 			statusSymbol = "🟢"
-		case "Offline":
-			statusSymbol = "🔴"
 		}
 
 		fmt.Printf("%-10d %-20s %-25s %-10s %-15s\n",
