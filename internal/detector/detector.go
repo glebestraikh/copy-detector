@@ -32,7 +32,6 @@ type Message struct {
 type NodeInfo struct {
 	ID      uuid.UUID
 	Address *net.UDPAddr
-	Status  string
 }
 
 type InterfaceInfo struct {
@@ -219,25 +218,25 @@ func (detector *Detector) getAvailableInterfaces() ([]InterfaceInfo, error) {
 			}
 		}
 
-		var ifaceType string
+		var ifiType string
 		var isCompatible bool
 
 		if detector.network == "udp4" && hasIPv4 {
 			isCompatible = true
-			ifaceType = "IPv4"
+			ifiType = "IPv4"
 		} else if detector.network == "udp6" && hasIPv6 {
 			isCompatible = true
-			ifaceType = "IPv6"
+			ifiType = "IPv6"
 		}
 
 		if hasIPv4 && hasIPv6 {
-			ifaceType = "IPv4/IPv6"
+			ifiType = "IPv4/IPv6"
 		}
 
 		if isCompatible {
 			suitable = append(suitable, InterfaceInfo{
 				Interface: &ifi,
-				Type:      ifaceType,
+				Type:      ifiType,
 			})
 		}
 	}
@@ -366,15 +365,9 @@ func (detector *Detector) displayTable() {
 	nodes := make([]NodeInfo, 0, len(detector.nodes))
 
 	for id, addr := range detector.nodes {
-		status := "Online"
-		if time.Since(detector.lastSeen[id]) > nodeTimeout {
-			status = "Offline"
-		}
-
 		nodes = append(nodes, NodeInfo{
 			ID:      id,
 			Address: addr,
-			Status:  status,
 		})
 	}
 	detector.mu.RUnlock()
@@ -385,11 +378,12 @@ func (detector *Detector) displayTable() {
 
 	detector.initTable()
 
-	fmt.Printf("%-10s %-20s %-25s %-10s\n",
+	fmt.Printf("%-10s %-20s %-25s %-15s\n",
 		"№", "Node ID", "IP:Port", "Status")
-	fmt.Println(strings.Repeat("-", 70))
+	fmt.Println(strings.Repeat("-", 80))
 
 	for i, node := range nodes {
+
 		addrStr := node.Address.String()
 		if node.Address.IP.To4() == nil {
 			addrStr = fmt.Sprintf("[%s]:%d", node.Address.IP.String(), node.Address.Port)
@@ -397,20 +391,12 @@ func (detector *Detector) displayTable() {
 
 		nodeID := node.ID.String()[:8] + "..."
 
-		statusSymbol := "🟢"
-		if node.Status != "Online" {
-			statusSymbol = "..."
-		}
-
-		fmt.Printf("%-10d %-20s %-25s %-10s\n",
-			i+1, nodeID, addrStr, statusSymbol+" "+node.Status)
+		fmt.Printf("%-10d %-20s %-25s %-15s\n",
+			i+1, nodeID, addrStr, "🟢 Online")
 	}
 
-	fmt.Println(strings.Repeat("-", 70))
+	fmt.Println(strings.Repeat("-", 80))
 	fmt.Printf("Total active nodes: %d", len(nodes))
-
-	detector.clearRemainingLines()
-
 	fmt.Printf("\n\nLast updated: %s", time.Now().Format("15:04:05"))
 }
 
@@ -425,8 +411,4 @@ func (detector *Detector) clearScreen() {
 	if err := cmd.Run(); err != nil {
 		log.Printf("Failed to clear screen: %v", err)
 	}
-}
-
-func (detector *Detector) clearRemainingLines() {
-	fmt.Print("\033[J")
 }
